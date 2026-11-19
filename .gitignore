@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.py[cod]
+
+# Input datasets and generated videos/reports can be large or private.
+/dataset/
+/output/
+/runs/
+
+# YOLO downloads this pretrained checkpoint automatically when needed.
+/yolo11n.pt
+/models/*.pt
+
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
