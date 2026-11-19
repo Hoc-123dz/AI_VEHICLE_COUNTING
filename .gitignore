@@ -1,17 +1,15 @@
+
+# Python virtual environment
 .venv/
+
+# Python cache
 __pycache__/
 *.py[cod]
 
-# Input datasets and generated videos/reports can be large or private.
-/dataset/
-/output/
-/runs/
-
-# YOLO downloads this pretrained checkpoint automatically when needed.
-/yolo11n.pt
-/models/*.pt
-
+# IDE settings
 .vscode/
 .idea/
+
+# Windows system files
 Thumbs.db
 Desktop.ini

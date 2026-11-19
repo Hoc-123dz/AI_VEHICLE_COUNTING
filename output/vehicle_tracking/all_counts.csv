@@ -1,0 +1,3 @@
+source_id,source_type,source_name,bicycle,car,motorcycle,bus,truck,processed_frames,count_method,result_path
+C:\Users\LENOVO\AI_VEHICLE_COUNTING\dataset\images\OIP.webp,Ảnh,OIP.webp,0,11,2,1,1,1,Phát hiện trong ảnh,output\vehicle_counts\images\OIP_counted.jpg
+C:\Users\LENOVO\AI_VEHICLE_COUNTING\dataset\videos\traffic.mp4,Video,traffic.mp4,1,13,32,5,3,591,ID theo dõi duy nhất,output\vehicle_tracking\videos\traffic_6cc8916d_tracking.mp4

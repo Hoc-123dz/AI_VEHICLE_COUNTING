@@ -1,0 +1,2 @@
+source_video,bicycle,car,motorcycle,bus,truck,processed_frames,result_video
+C:\Users\LENOVO\AI_VEHICLE_COUNTING\dataset\videos\traffic.mp4,1,13,32,5,3,591,output\vehicle_tracking\videos\traffic_6cc8916d_tracking.mp4
