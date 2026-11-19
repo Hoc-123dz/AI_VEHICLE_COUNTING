@@ -140,6 +140,7 @@ def write_report(records: dict[str, dict[str, str]]) -> None:
             f'<td>{result_link}</td></tr>'
         )
 
+    column_count = 2 + len(VEHICLE_LABELS) + 3
     table_rows = "\n".join(rows) if rows else (
         f'<tr><td class="empty" colspan="{column_count}">Chưa có ảnh, video hoặc phiên camera nào.</td></tr>'
     )
@@ -154,7 +155,6 @@ def write_report(records: dict[str, dict[str, str]]) -> None:
         f'<th class="number">{html.escape(label_name)}</th>'
         for label_name in VEHICLE_LABELS.values()
     )
-    column_count = 2 + len(VEHICLE_LABELS) + 3
     report = f"""<!doctype html>
 <html lang="vi">
 <head>

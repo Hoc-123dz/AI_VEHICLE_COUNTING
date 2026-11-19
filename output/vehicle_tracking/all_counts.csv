@@ -1,4 +1,0 @@
-source_id,source_type,source_name,car,motorcycle,bus,truck,processed_frames,count_method,result_path
-C:\Users\LENOVO\AI_VEHICLE_COUNTING\dataset\images\OIP.webp,Ảnh,OIP.webp,11,2,1,1,1,Phát hiện trong ảnh,output\vehicle_counts\images\OIP_counted.jpg
-C:\Users\LENOVO\AI_VEHICLE_COUNTING\dataset\videos\AQMlm8AqqkXoRBCwQBh2rsas5Fzyw_mSKyljCB91lZx1DjruR_71x-wDeVK8aijwKrazOLF7IbDc78SonMtaLkJg4WB34_0JkcftLsQV6g.mp4,Video,AQMlm8AqqkXoRBCwQBh2rsas5Fzyw_mSKyljCB91lZx1DjruR_71x-wDeVK8aijwKrazOLF7IbDc78SonMtaLkJg4WB34_0JkcftLsQV6g.mp4,34,20,0,3,548,ID theo dõi duy nhất,output\vehicle_tracking\videos\dataset__videos__AQMlm8AqqkXoRBCwQBh2rsas5Fzyw_mSKyljCB91lZx1DjruR_71x-wDeVK8aijwKrazOLF7IbDc78SonMtaLkJg4WB34_0JkcftLsQV6g_tracking.mp4
-C:\Users\LENOVO\AI_VEHICLE_COUNTING\dataset\videos\traffic.mp4,Video,traffic.mp4,13,32,5,3,591,ID theo dõi duy nhất,output\vehicle_tracking\videos\traffic_6cc8916d_tracking.mp4

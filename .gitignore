@@ -6,6 +6,14 @@
 __pycache__/
 *.py[cod]
 
+# Local inputs and generated results
+dataset/
+output/
+runs/
+
+# YOLO weights
+*.pt
+
 # IDE settings
 .vscode/
 .idea/
