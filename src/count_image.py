@@ -12,9 +12,8 @@ except ImportError:
 
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
-VEHICLE_CLASSES = [1, 2, 3, 5, 7]
+VEHICLE_CLASSES = [2, 3, 5, 7]
 CLASS_LABELS = {
-    1: "bicycle",
     2: "car",
     3: "motorcycle",
     5: "bus",
@@ -22,7 +21,14 @@ CLASS_LABELS = {
 }
 
 
-def process_image(model: YOLO, image_path: Path, output_dir: Path) -> None:
+def process_image(
+    model: YOLO,
+    image_path: Path,
+    output_dir: Path,
+    conf: float,
+    imgsz: int,
+    min_box_area: float,
+) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     image_output = output_dir / f"{image_path.stem}_counted.jpg"
     csv_output = output_dir / f"{image_path.stem}_counts.csv"
@@ -30,7 +36,10 @@ def process_image(model: YOLO, image_path: Path, output_dir: Path) -> None:
     result = model.predict(
         source=str(image_path),
         classes=VEHICLE_CLASSES,
-        conf=0.25,
+        conf=conf,
+        iou=0.55,
+        imgsz=imgsz,
+        device="cpu",
         verbose=False,
     )[0]
     image = result.orig_img.copy()
@@ -42,11 +51,17 @@ def process_image(model: YOLO, image_path: Path, output_dir: Path) -> None:
         class_ids = boxes.cls.int().cpu().tolist()
         confidences = boxes.conf.cpu().tolist()
 
-        for detection_id, (coords, class_id, confidence) in enumerate(
-            zip(coordinates, class_ids, confidences), start=1
-        ):
-            counts[class_id] += 1
+        frame_height, frame_width = image.shape[:2]
+        detection_id = 0
+        for coords, class_id, confidence in zip(coordinates, class_ids, confidences):
             x1, y1, x2, y2 = coords
+            box_width = x2 - x1
+            box_height = y2 - y1
+            box_area_ratio = (box_width * box_height) / (frame_width * frame_height)
+            if box_width < 12 or box_height < 12 or box_area_ratio < min_box_area:
+                continue
+            detection_id += 1
+            counts[class_id] += 1
             label = f"{CLASS_LABELS[class_id]} #{detection_id} {confidence:.2f}"
             cv2.rectangle(image, (x1, y1), (x2, y2), (0, 220, 0), 2)
             text_y = max(y1 - 8, 22)
@@ -131,6 +146,15 @@ def main() -> None:
         default=PROJECT_DIR / "dataset" / "images",
         help="Image file or directory (defaults to dataset/images/).",
     )
+    parser.add_argument("--model", default="yolo11s.pt", help="YOLO checkpoint (default: yolo11s.pt).")
+    parser.add_argument("--conf", type=float, default=0.35, help="Minimum confidence (default: 0.35).")
+    parser.add_argument("--imgsz", type=int, default=1280, help="Inference resolution (default: 1280).")
+    parser.add_argument(
+        "--min-box-area",
+        type=float,
+        default=0.00005,
+        help="Minimum detected box area as a fraction of image area (default: 0.00005).",
+    )
     args = parser.parse_args()
     source = args.source.resolve()
     if not source.exists():
@@ -149,14 +173,17 @@ def main() -> None:
     if not image_paths:
         raise FileNotFoundError(f"No supported images found in: {source}")
 
-    model = YOLO(str(PROJECT_DIR / "yolo11n.pt"))
+    model_path = Path(args.model)
+    if not model_path.is_absolute():
+        model_path = PROJECT_DIR / model_path
+    model = YOLO(str(model_path))
     for image_path in image_paths:
         if source.is_dir():
             relative_parent = image_path.relative_to(source).parent
             output_dir = output_root / relative_parent
         else:
             output_dir = output_root
-        process_image(model, image_path, output_dir)
+        process_image(model, image_path, output_dir, args.conf, args.imgsz, args.min_box_area)
 
 
 if __name__ == "__main__":

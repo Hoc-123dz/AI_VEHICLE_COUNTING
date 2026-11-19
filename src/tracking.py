@@ -4,7 +4,7 @@ import csv
 from datetime import datetime
 import hashlib
 from pathlib import Path
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 import cv2
 from ultralytics import YOLO
@@ -15,13 +15,12 @@ except ImportError:
     from reporting import PROJECT_DIR, RESULTS_DIR, load_records, upsert_record, write_report
 
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".webm"}
-VEHICLE_CLASSES = [1, 2, 3, 5, 7]
+VEHICLE_CLASSES = [2, 3, 5, 7]
 OUTPUT_DIR = PROJECT_DIR / "output" / "vehicle_tracking"
 VIDEOS_DIR = OUTPUT_DIR / "videos"
 SUMMARY_PATH = OUTPUT_DIR / "video_counts.csv"
 REPORT_PATH = RESULTS_DIR / "index.html"
 CLASS_LABELS = {
-    1: "bicycle",
     2: "car",
     3: "motorcycle",
     5: "bus",
@@ -69,7 +68,15 @@ def output_video_path(video_path: Path, source: Path, summaries: dict[str, dict[
     return candidate
 
 
-def process_video(model: YOLO, video_path: Path, output_path: Path) -> dict[str, str]:
+def process_video(
+    model: YOLO,
+    video_path: Path,
+    output_path: Path,
+    conf: float,
+    imgsz: int,
+    min_track_frames: int,
+    min_box_area: float,
+) -> dict[str, str]:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     capture = cv2.VideoCapture(str(video_path))
     if not capture.isOpened():
@@ -82,14 +89,17 @@ def process_video(model: YOLO, video_path: Path, output_path: Path) -> dict[str,
     writer = None
     tracked_frames = 0
     frames_with_ids = 0
-    seen_track_ids = defaultdict(set)
+    track_stats = {}
 
     try:
         results = model.track(
             source=str(video_path),
             tracker="bytetrack.yaml",
             classes=VEHICLE_CLASSES,
-            conf=0.25,
+            conf=conf,
+            iou=0.55,
+            imgsz=imgsz,
+            device="cpu",
             stream=True,
             persist=True,
             save=False,
@@ -117,12 +127,28 @@ def process_video(model: YOLO, video_path: Path, output_path: Path) -> dict[str,
                 coordinates = boxes.xyxy.int().cpu().tolist()
                 class_ids = boxes.cls.int().cpu().tolist()
                 track_ids = boxes.id.int().cpu().tolist()
+                confidences = boxes.conf.cpu().tolist()
 
-                for (x1, y1, x2, y2), class_id, track_id in zip(
-                    coordinates, class_ids, track_ids
+                frame_height, frame_width = frame.shape[:2]
+                for (x1, y1, x2, y2), class_id, track_id, confidence in zip(
+                    coordinates, class_ids, track_ids, confidences
                 ):
-                    seen_track_ids[class_id].add(track_id)
-                    label = f"{CLASS_LABELS[class_id]} ID:{track_id}"
+                    box_width = x2 - x1
+                    box_height = y2 - y1
+                    box_area_ratio = (box_width * box_height) / (frame_width * frame_height)
+                    if box_width < 12 or box_height < 12 or box_area_ratio < min_box_area:
+                        continue
+
+                    stats = track_stats.setdefault(
+                        track_id,
+                        {"frames": 0, "class_frames": Counter(), "confidence": []},
+                    )
+                    stats["frames"] += 1
+                    stats["class_frames"][class_id] += 1
+                    stats["confidence"].append(float(confidence))
+
+                    stable_class = stats["class_frames"].most_common(1)[0][0]
+                    label = f"{CLASS_LABELS[stable_class]} ID:{track_id} {confidence:.2f}"
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 0), 2)
                     text_y = max(y1 - 8, 24)
                     cv2.putText(
@@ -136,8 +162,15 @@ def process_video(model: YOLO, video_path: Path, output_path: Path) -> dict[str,
                         cv2.LINE_AA,
                     )
 
+            stable_counts = defaultdict(int)
+            for stats in track_stats.values():
+                if stats["frames"] < min_track_frames:
+                    continue
+                stable_class = stats["class_frames"].most_common(1)[0][0]
+                stable_counts[stable_class] += 1
+
             summary = "  ".join(
-                f"{CLASS_LABELS[class_id]}: {len(seen_track_ids[class_id])}"
+                f"{CLASS_LABELS[class_id]}: {stable_counts[class_id]}"
                 for class_id in VEHICLE_CLASSES
             )
             cv2.rectangle(frame, (8, 8), (900, 45), (0, 0, 0), -1)
@@ -161,10 +194,16 @@ def process_video(model: YOLO, video_path: Path, output_path: Path) -> dict[str,
     if tracked_frames == 0:
         raise RuntimeError(f"No frames were processed from: {video_path}")
 
+    stable_counts = defaultdict(int)
+    for stats in track_stats.values():
+        if stats["frames"] >= min_track_frames:
+            stable_class = stats["class_frames"].most_common(1)[0][0]
+            stable_counts[stable_class] += 1
+
     print(f"Input video: {video_path}")
     print(f"Processed frames: {tracked_frames}; frames with IDs: {frames_with_ids}")
     print("Counts: " + ", ".join(
-        f"{CLASS_LABELS[class_id]}={len(seen_track_ids[class_id])}"
+        f"{CLASS_LABELS[class_id]}={stable_counts[class_id]}"
         for class_id in VEHICLE_CLASSES
     ))
     print(f"Video result: {output_path}")
@@ -176,7 +215,7 @@ def process_video(model: YOLO, video_path: Path, output_path: Path) -> dict[str,
     }
     row.update(
         {
-            CLASS_LABELS[class_id]: str(len(seen_track_ids[class_id]))
+            CLASS_LABELS[class_id]: str(stable_counts[class_id])
             for class_id in VEHICLE_CLASSES
         }
     )
@@ -209,14 +248,24 @@ def write_summary(summaries: dict[str, dict[str, str]]) -> None:
         writer = csv.DictWriter(summary_file, fieldnames=fieldnames)
         writer.writeheader()
         for source_video in sorted(summaries):
-            writer.writerow(summaries[source_video])
+            writer.writerow(
+                {fieldname: summaries[source_video].get(fieldname, "0")
+                 for fieldname in fieldnames}
+            )
 
 
 def write_html_report(summaries: dict[str, dict[str, str]]) -> None:
     write_report(load_records())
 
 
-def process_camera(model: YOLO, camera_index: int) -> None:
+def process_camera(
+    model: YOLO,
+    camera_index: int,
+    conf: float,
+    imgsz: int,
+    min_track_frames: int,
+    min_box_area: float,
+) -> None:
     capture = cv2.VideoCapture(camera_index)
     if not capture.isOpened():
         capture.release()
@@ -233,7 +282,7 @@ def process_camera(model: YOLO, camera_index: int) -> None:
 
     writer = None
     tracked_frames = 0
-    seen_track_ids = defaultdict(set)
+    track_stats = {}
     try:
         while True:
             ok, frame = capture.read()
@@ -244,7 +293,10 @@ def process_camera(model: YOLO, camera_index: int) -> None:
                 source=frame,
                 tracker="bytetrack.yaml",
                 classes=VEHICLE_CLASSES,
-                conf=0.25,
+                conf=conf,
+                iou=0.55,
+                imgsz=imgsz,
+                device="cpu",
                 persist=True,
                 verbose=False,
             )[0]
@@ -264,11 +316,25 @@ def process_camera(model: YOLO, camera_index: int) -> None:
                 coordinates = boxes.xyxy.int().cpu().tolist()
                 class_ids = boxes.cls.int().cpu().tolist()
                 track_ids = boxes.id.int().cpu().tolist()
-                for (x1, y1, x2, y2), class_id, track_id in zip(
-                    coordinates, class_ids, track_ids
+                confidences = boxes.conf.cpu().tolist()
+                frame_height, frame_width = frame.shape[:2]
+                for (x1, y1, x2, y2), class_id, track_id, confidence in zip(
+                    coordinates, class_ids, track_ids, confidences
                 ):
-                    seen_track_ids[class_id].add(track_id)
-                    label = f"{CLASS_LABELS[class_id]} ID:{track_id}"
+                    box_width = x2 - x1
+                    box_height = y2 - y1
+                    box_area_ratio = (box_width * box_height) / (frame_width * frame_height)
+                    if box_width < 12 or box_height < 12 or box_area_ratio < min_box_area:
+                        continue
+                    stats = track_stats.setdefault(
+                        track_id,
+                        {"frames": 0, "class_frames": Counter(), "confidence": []},
+                    )
+                    stats["frames"] += 1
+                    stats["class_frames"][class_id] += 1
+                    stats["confidence"].append(float(confidence))
+                    stable_class = stats["class_frames"].most_common(1)[0][0]
+                    label = f"{CLASS_LABELS[stable_class]} ID:{track_id} {confidence:.2f}"
                     cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 0), 2)
                     cv2.putText(
                         frame,
@@ -281,8 +347,13 @@ def process_camera(model: YOLO, camera_index: int) -> None:
                         cv2.LINE_AA,
                     )
 
+            stable_counts = defaultdict(int)
+            for stats in track_stats.values():
+                if stats["frames"] >= min_track_frames:
+                    stable_class = stats["class_frames"].most_common(1)[0][0]
+                    stable_counts[stable_class] += 1
             counts_text = "  ".join(
-                f"{CLASS_LABELS[class_id]}: {len(seen_track_ids[class_id])}"
+                f"{CLASS_LABELS[class_id]}: {stable_counts[class_id]}"
                 for class_id in VEHICLE_CLASSES
             )
             cv2.rectangle(frame, (8, 8), (900, 45), (0, 0, 0), -1)
@@ -310,6 +381,12 @@ def process_camera(model: YOLO, camera_index: int) -> None:
     if tracked_frames == 0:
         raise RuntimeError("Camera session ended before any frames were captured.")
 
+    stable_counts = defaultdict(int)
+    for stats in track_stats.values():
+        if stats["frames"] >= min_track_frames:
+            stable_class = stats["class_frames"].most_common(1)[0][0]
+            stable_counts[stable_class] += 1
+
     relative_output = str(output_path.relative_to(PROJECT_DIR))
     source_id = f"camera://{camera_index}/{session_time}"
     upsert_record(
@@ -318,7 +395,7 @@ def process_camera(model: YOLO, camera_index: int) -> None:
             "source_type": "Camera",
             "source_name": f"Camera {camera_index} - {session_time}",
             **{
-                CLASS_LABELS[class_id]: str(len(seen_track_ids[class_id]))
+                CLASS_LABELS[class_id]: str(stable_counts[class_id])
                 for class_id in VEHICLE_CLASSES
             },
             "processed_frames": str(tracked_frames),
@@ -328,7 +405,7 @@ def process_camera(model: YOLO, camera_index: int) -> None:
     )
     print(f"Camera session finished: {tracked_frames} frames")
     print("Counts: " + ", ".join(
-        f"{CLASS_LABELS[class_id]}={len(seen_track_ids[class_id])}"
+        f"{CLASS_LABELS[class_id]}={stable_counts[class_id]}"
         for class_id in VEHICLE_CLASSES
     ))
     print(f"Recording: {output_path}")
@@ -353,10 +430,39 @@ def main() -> None:
         type=int,
         help="Track a live camera by device index (default index: 0). Press q to end the session.",
     )
+    parser.add_argument(
+        "--model",
+        default="yolo11s.pt",
+        help="YOLO checkpoint (default: yolo11s.pt).",
+    )
+    parser.add_argument("--conf", type=float, default=0.35, help="Minimum confidence (default: 0.35).")
+    parser.add_argument("--imgsz", type=int, default=640, help="Inference resolution (default: 640).")
+    parser.add_argument(
+        "--min-track-frames",
+        type=int,
+        default=5,
+        help="Minimum frames a track must survive before counting (default: 5).",
+    )
+    parser.add_argument(
+        "--min-box-area",
+        type=float,
+        default=0.00005,
+        help="Minimum detected box area as a fraction of frame area (default: 0.00005).",
+    )
     args = parser.parse_args()
-    model = YOLO(str(PROJECT_DIR / "yolo11n.pt"))
+    model_path = Path(args.model)
+    if not model_path.is_absolute():
+        model_path = PROJECT_DIR / model_path
+    model = YOLO(str(model_path))
     if args.camera is not None:
-        process_camera(model, args.camera)
+        process_camera(
+            model,
+            args.camera,
+            args.conf,
+            args.imgsz,
+            args.min_track_frames,
+            args.min_box_area,
+        )
         return
 
     source = args.source.resolve()
@@ -379,7 +485,13 @@ def main() -> None:
     for video_path in video_paths:
         output_path = output_video_path(video_path, source, summaries)
         summaries[str(video_path.resolve())] = process_video(
-            model, video_path, output_path
+            model,
+            video_path,
+            output_path,
+            args.conf,
+            args.imgsz,
+            args.min_track_frames,
+            args.min_box_area,
         )
         write_summary(summaries)
 

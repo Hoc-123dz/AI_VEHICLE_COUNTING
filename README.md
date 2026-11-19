@@ -17,7 +17,9 @@ py -3.11 -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-The YOLO11n checkpoint (`yolo11n.pt`) is downloaded automatically by Ultralytics on first run.
+The YOLO11s checkpoint (`yolo11s.pt`) is downloaded automatically by Ultralytics on first run.
+For faster processing on CPU, you can use `--model yolo11n.pt`; for more accuracy, use `yolo11m.pt`.
+The tracker only counts objects that remain valid for at least 5 frames and removes unusually small detections.
 
 ## Add Inputs
 
@@ -38,6 +40,13 @@ Process every video in `dataset/videos/` with tracking IDs:
 
 ```powershell
 python src/tracking.py
+```
+
+Common accuracy options:
+
+```powershell
+python src/tracking.py --model yolo11s.pt --conf 0.35 --imgsz 640 --min-track-frames 5
+python src/count_image.py --model yolo11s.pt --conf 0.35 --imgsz 1280
 ```
 
 Run live tracking with the default camera (device index 0). Press `q` to end the session and save its result:

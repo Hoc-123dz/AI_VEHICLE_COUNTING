@@ -11,7 +11,7 @@ output_path = output_dir / "traffic_detection.mp4"
 output_dir.mkdir(parents=True, exist_ok=True)
 
 print("Loading YOLO11 model...")
-model = YOLO("yolo11n.pt")
+model = YOLO("yolo11s.pt")
 
 video_capture = cv2.VideoCapture(str(video_path))
 if not video_capture.isOpened():
@@ -27,7 +27,10 @@ try:
     for result in model.predict(
         source=str(video_path),
         classes=[2, 3, 5, 7],
-        conf=0.25,
+        conf=0.35,
+        iou=0.55,
+        imgsz=1280,
+        device="cpu",
         stream=True,
         save=False,
     ):

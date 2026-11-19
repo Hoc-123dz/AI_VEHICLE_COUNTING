@@ -11,7 +11,6 @@ RESULTS_DIR = OUTPUT_DIR / "vehicle_tracking"
 RESULTS_PATH = RESULTS_DIR / "all_counts.csv"
 REPORT_PATH = RESULTS_DIR / "index.html"
 VEHICLE_LABELS = {
-    "bicycle": "Xe đạp",
     "car": "Ô tô",
     "motorcycle": "Xe máy",
     "bus": "Xe buýt",
@@ -142,7 +141,7 @@ def write_report(records: dict[str, dict[str, str]]) -> None:
         )
 
     table_rows = "\n".join(rows) if rows else (
-        '<tr><td class="empty" colspan="11">Chưa có ảnh, video hoặc phiên camera nào.</td></tr>'
+        f'<tr><td class="empty" colspan="{column_count}">Chưa có ảnh, video hoặc phiên camera nào.</td></tr>'
     )
     cards = "".join(
         f'<div class="total-card"><span>{VEHICLE_LABELS[label]}</span><strong>{totals[label]}</strong></div>'
@@ -151,6 +150,11 @@ def write_report(records: dict[str, dict[str, str]]) -> None:
     total_cells = "".join(
         f'<td class="number">{totals[label]}</td>' for label in VEHICLE_LABELS
     )
+    count_headers = "".join(
+        f'<th class="number">{html.escape(label_name)}</th>'
+        for label_name in VEHICLE_LABELS.values()
+    )
+    column_count = 2 + len(VEHICLE_LABELS) + 3
     report = f"""<!doctype html>
 <html lang="vi">
 <head>
@@ -164,7 +168,7 @@ def write_report(records: dict[str, dict[str, str]]) -> None:
     main {{ max-width: 1500px; margin: 0 auto; padding: 32px 26px 52px; }}
     h1 {{ margin: 4px 0; font-size: 28px; }}
     .subtitle {{ margin: 0; color: var(--muted); }}
-    .totals {{ display: grid; grid-template-columns: repeat(5, minmax(110px, 1fr)); gap: 10px; margin: 22px 0; }}
+    .totals {{ display: grid; grid-template-columns: repeat({len(VEHICLE_LABELS)}, minmax(110px, 1fr)); gap: 10px; margin: 22px 0; }}
     .total-card {{ padding: 13px 15px; border: 1px solid var(--line); border-radius: 6px; background: white; }}
     .total-card span {{ display: block; color: var(--muted); font-size: 13px; }}
     .total-card strong {{ display: block; color: var(--accent); font-size: 25px; font-variant-numeric: tabular-nums; }}
@@ -191,7 +195,7 @@ def write_report(records: dict[str, dict[str, str]]) -> None:
   <p class="muted">Tổng là tổng lượt đếm của các nguồn đã xử lý; cùng một xe xuất hiện ở nhiều nguồn sẽ được tính trong từng nguồn.</p>
   <div class="toolbar"><input id="search" type="search" placeholder="Tìm theo loại nguồn hoặc tên file..." aria-label="Tìm nguồn"><span class="muted">Nguồn: <strong id="source-count">{len(records)}</strong></span></div>
   <div class="table-wrap"><table>
-    <thead><tr><th>Loại</th><th>Nguồn</th><th class="number">Xe đạp</th><th class="number">Ô tô</th><th class="number">Xe máy</th><th class="number">Xe buýt</th><th class="number">Xe tải</th><th class="number">Frames</th><th>Cách đếm</th><th>Kết quả</th></tr></thead>
+    <thead><tr><th>Loại</th><th>Nguồn</th>{count_headers}<th class="number">Frames</th><th>Cách đếm</th><th>Kết quả</th></tr></thead>
     <tbody id="rows">{table_rows}</tbody>
     <tfoot><tr class="total-row"><th colspan="2">TỔNG TẤT CẢ NGUỒN ({len(records)})</th>{total_cells}<th>-</th><th>-</th><th>-</th></tr></tfoot>
   </table></div>
